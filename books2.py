@@ -1,7 +1,13 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request, status, Form, Header
 from pydantic import BaseModel, Field
 from uuid import UUID
 from typing import Optional
+from starlette.responses import JSONResponse
+
+
+class NegativeNumberException(Exception):
+    def __init__(self, books_to_return):
+        self.books_to_return = books_to_return
 
 
 app = FastAPI()
@@ -38,11 +44,58 @@ class Book(BaseModel):
         }
 
 
+class BookNoRating(BaseModel):
+    id: UUID
+    title: str = Field(
+        min_length=1
+    )
+    author: str
+    description: Optional[str] = Field(
+        title='Description of the book',
+        max_length=100,
+        min_length=1
+    )
+
+
 BOOKS = []
+
+
+@app.exception_handler(NegativeNumberException)
+async def negative_number_exception_handler(request: Request, exception: NegativeNumberException):
+    return JSONResponse(
+        status_code=418,
+        content={'message': f'Hey, why do you want {exception.books_to_return}? You need to read more!'}
+    )
+
+
+@app.post("/books/login")
+async def book_login(username: str = Form(), password: str = Form()):
+    return {
+        'username': username,
+        'password': password
+    }
+
+
+@app.get("/header")
+async def read_header(random_header: Optional[str] = Header(None)):
+    return {"Random-Header": random_header}
+
+
+@app.post("/exercise/books/login/")
+async def book_login_exercise(book_to_read: UUID, username: str = Header(None), password: str = Header(None)):
+    if username == 'FastAPIUser' and password == 'test1234!':
+        return await read_book(book_id=book_to_read)
+    else:
+        return 'Invalid user'
 
 
 @app.get("/")
 async def read_all_books(books_to_return: Optional[int] = None):
+    if books_to_return and books_to_return < 0:
+        raise NegativeNumberException(books_to_return=books_to_return)
+    else:
+        pass
+
     if len(BOOKS) < 1:
         create_books_no_api()
     else:
@@ -61,16 +114,29 @@ async def read_all_books(books_to_return: Optional[int] = None):
     return BOOKS
 
 
-@app.get("/book/{book_id}")
+@app.get("/book/{book_id}", response_model=Book)
 async def read_book(book_id: UUID):
     for book in BOOKS:
         if book.id == book_id:
             return book
         else:
             continue
+    # id not found books to read, raise exception
+    raise raise_item_can_not_be_found_exception()
 
 
-@app.post("/")
+@app.get("/book/rating/{book_id}", response_model=BookNoRating)
+async def read_book_no_rating(book_id: UUID):
+    for book in BOOKS:
+        if book.id == book_id:
+            return book
+        else:
+            continue
+    # id not found books to read, raise exception
+    raise raise_item_can_not_be_found_exception()
+
+
+@app.post("/", status_code=status.HTTP_201_CREATED)
 async def create_book(book: Book):
     BOOKS.append(book)
     return book
@@ -87,6 +153,8 @@ async def update_book(book_id: UUID, updated_book: Book):
             return BOOKS[counter - 1]
         else:
             continue
+    # id not found books to update, raise exception
+    raise raise_item_can_not_be_found_exception()
 
 
 @app.delete("/{book_id}")
@@ -100,6 +168,8 @@ async def delete_book(book_id: UUID):
             return f'ID: {book_id} deleted'
         else:
             continue
+    # did not return anything because book_id not in books, raise exception
+    raise raise_item_can_not_be_found_exception()
 
 
 def create_books_no_api():
@@ -135,3 +205,11 @@ def create_books_no_api():
     BOOKS.append(book_2)
     BOOKS.append(book_3)
     BOOKS.append(book_4)
+
+
+def raise_item_can_not_be_found_exception():
+    return HTTPException(
+        status_code=404,
+        detail='Book not found',
+        headers={'X-Header-Error': 'Nothing to be seen at the UUID'}
+    )
